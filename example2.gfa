@@ -1,0 +1,22 @@
+S	1	AT
+S	2	CG
+S	3	CGCG
+S	4	CGCGCG
+S	5	AT
+S	6	AT
+S	7	CG
+S	8	CT
+S	9	CTCT
+S	10	GA
+L	1	+	2	+	0M
+L	4	+	5	+	0M
+L	1	+	3	+	0M
+L	1	+	4	+	0M
+L	2	+	5	+	0M
+L	3	+	5	+	0M
+L	1	+	6	+	0M
+L	5	+	7	+	0M
+L	7	+	8	+	0M
+L	7	+	9	+	0M
+L	8	+	10	+	0M
+L	9	+	10	+	0M
