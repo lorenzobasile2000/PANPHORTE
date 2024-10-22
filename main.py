@@ -1,7 +1,7 @@
 import re
 from collections import defaultdict, deque
 
-
+THRESHOLD = 1
 class Link:
     def __init__(self, start, end, id):
         self.start = start
@@ -117,14 +117,20 @@ if bolle_trovate:
     for bolla in bolle_trovate:
         nodo_inizio, nodo_fine, percorsi = bolla
         print(f"Bolla trovata tra {nodo_inizio} e {nodo_fine}:")
-        for percorso in percorsi:
-            if len(percorso) > 2:  # Assicurarsi che ci siano nodi intermedi
-                # Escludi il primo (nodo_inizio) e l'ultimo (nodo_fine) nodo
-                sequenza = ''.join(nodes[nodo] for nodo in percorso[1:-1])
-                if sequenza:  # Controllo aggiuntivo per evitare stringhe vuote
-                    print(f"Sequenza esclusi nodi estremi: {sequenza}")
-                    regex(sequenza)
-            else:
-                print("Percorso troppo corto per escludere nodi estremi.")
+        if [nodo_inizio, nodo_fine] in percorsi:
+            print("Bolla di deletion")
+            percorsi.remove([nodo_inizio, nodo_fine])
+        if len(percorsi) > THRESHOLD:
+            for percorso in percorsi:
+                if len(percorso) > 2:  # Assicurarsi che ci siano nodi intermedi
+                    # Escludi il primo (nodo_inizio) e l'ultimo (nodo_fine) nodo
+                    sequenza = ''.join(nodes[nodo] for nodo in percorso[1:-1])
+                    if sequenza:  # Controllo aggiuntivo per evitare stringhe vuote
+                        print(f"Sequenza esclusi nodi estremi: {sequenza}")
+                        regex(sequenza)
+                else:
+                    print("Percorso troppo corto per escludere nodi estremi.")
+        else:
+            print("")
 else:
     print("Nessuna bolla trovata.")
