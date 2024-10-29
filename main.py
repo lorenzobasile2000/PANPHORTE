@@ -1,136 +1,87 @@
 import re
-from collections import defaultdict, deque
+import subprocess
+import json
 
-THRESHOLD = 1
-class Link:
-    def __init__(self, start, end, id):
-        self.start = start
-        self.end = end
-        self.id = id
+# Parameters
+gfa_file = "example3.gfa"
+out_json = "OUT_JSON"
+fasta = "FASTA"
+file_path = "OUT_JSON"
 
 
-def leggi_gfa(file_gfa):
-    links = []
+def read_gfa(file_gfa):
     nodes = {}
-    count = 0
 
-    with open(file_gfa, 'r') as file:
-        for linea in file:
-            linea = linea.strip()
-            if not linea:
+    with open(file_gfa, 'r') as gfa:
+        for line in gfa:
+            line = line.strip()
+            if not line:
                 continue
 
-            tipo_record = linea[0]
+            tipo_record = line[0]
 
-            if tipo_record == 'L':
-                dati = linea.split('\t')
-                if len(dati) == 6:
-                    start = dati[1]
-                    end = dati[3]
-                    link = Link(start, end, count)
-                    links.append(link)
-                    count += 1
-                else:
-                    print(f"Riga non valida: {linea}")
-
-            elif tipo_record == 'S':
-                dati = linea.split('\t')
-                if len(dati) >= 3:
-                    id_node = dati[1]
-                    sequence = dati[2]
+            if tipo_record == 'S':
+                seq = line.split('\t')
+                if len(seq) >= 3:
+                    id_node = seq[1]
+                    sequence = seq[2]
                     nodes[id_node] = sequence  # Aggiungi il nodo e la sua sequenza
 
-    return links, nodes
+    return nodes
 
 
-def trova_bolle(link_list):
-    grafo = defaultdict(list)
-    for link in link_list:
-        grafo[link.start].append(link.end)
-
-    bolle = []
-
-    def trova_percorsi(nodo_inizio):
-        percorsi = defaultdict(list)
-        coda = deque([[nodo_inizio]])
-
-        while coda:
-            percorso = coda.popleft()
-            ultimo_nodo = percorso[-1]
-
-            if ultimo_nodo in grafo:
-                for next_nodo in grafo[ultimo_nodo]:
-                    nuovo_percorso = percorso + [next_nodo]
-                    coda.append(nuovo_percorso)
-                    percorsi[next_nodo].append(nuovo_percorso)
-
-        return percorsi
-
-    for nodo in grafo:
-        if len(grafo[nodo]) > 1:
-            percorsi_da_nodo = trova_percorsi(nodo)
-            nodi_finali = defaultdict(list)
-            for finale, percorsi in percorsi_da_nodo.items():
-                if len(percorsi) > 1:  # Modifica qui: richiediamo almeno 3 percorsi
-                    nodi_finali[finale].extend(percorsi)
-
-            for nodo_finale, percorsi in nodi_finali.items():
-                if len(percorsi) > 1:  # Assicuriamoci di avere almeno 3 percorsi per considerare una bolla
-                    bolle.append((nodo, nodo_finale, percorsi))
-                    break    #Se troviamo una bolla, smettiamo di cercare altri percorsi per questo nodo
-
-    return bolle
-
-
-def regex(sequenza_genoma):
+def regex(sequence):
     pattern = re.compile(r'(.+?)\1+')
-    matches = pattern.finditer(sequenza_genoma)
+    matches = pattern.finditer(sequence)
 
     tandem_repetitions = []
     for match in matches:
-        ripetizione = match.group(1)
-        numero_di_volte = len(match.group(0)) // len(ripetizione)
-        posizione = match.start()
-        tandem_repetitions.append((ripetizione, numero_di_volte, posizione))
+        repetition = match.group(1)
+        times = len(match.group(0)) // len(repetition)
+        position = match.start()
+        tandem_repetitions.append((repetition, times, position))
 
     if tandem_repetitions:
-        for ripetizione, numero_di_volte, posizione in tandem_repetitions:
-            print(f"{ripetizione} repeated {numero_di_volte} times at position {posizione}\n")
+        for repetition, times, position in tandem_repetitions:
+            print(f"{repetition} repeated {times} times at position {position}\n")
     else:
         print("No tandem repetition find.\n")
 
     return tandem_repetitions
 
 
-# Esegui la funzione con un esempio di file GFA
-file_gfa = "example3.gfa"
-links, nodes = leggi_gfa(file_gfa)
+nodes = read_gfa(gfa_file)
+# Command to execute Bubblegun
+command = ["BubbleGun", "-g", gfa_file, "bchains", "--bubble_json", out_json, "--fasta", fasta]
 
-# Ordina la lista di links in base al campo "start"
-links_ordinati = sorted(links, key=lambda link: link.start)
+result = subprocess.run(command, capture_output=True, text=True)
 
-# Identificare le bolle
-bolle_trovate = trova_bolle(links_ordinati)
-
-# Stampare le bolle trovate con le sequenze concatenate
-if bolle_trovate:
-    for bolla in bolle_trovate:
-        nodo_inizio, nodo_fine, percorsi = bolla
-        print(f"Bolla trovata tra {nodo_inizio} e {nodo_fine}:")
-        if [nodo_inizio, nodo_fine] in percorsi:
-            print("Bolla di deletion")
-            percorsi.remove([nodo_inizio, nodo_fine])
-        if len(percorsi) > THRESHOLD:
-            for percorso in percorsi:
-                if len(percorso) > 2:  # Assicurarsi che ci siano nodi intermedi
-                    # Escludi il primo (nodo_inizio) e l'ultimo (nodo_fine) nodo
-                    sequenza = ''.join(nodes[nodo] for nodo in percorso[1:-1])
-                    if sequenza:  # Controllo aggiuntivo per evitare stringhe vuote
-                        print(f"Sequenza esclusi nodi estremi: {sequenza}")
-                        regex(sequenza)
-                else:
-                    print("Percorso troppo corto per escludere nodi estremi.")
-        else:
-            print("")
+if result.returncode == 0:
+    print("Command executed with success!")
+    print("Output:", result.stdout)
 else:
-    print("Nessuna bolla trovata.")
+    print("Error with the execution of the command.")
+    print("Error:", result.stderr)
+
+# Opening JSON file
+with open(file_path, "r") as file:
+    data = json.load(file)
+
+for chains in data:
+    chain = data[chains]
+    print("Chain ID:", chain["chain_id"])
+    print("Chain Ends:", chain["ends"])
+    print()
+    for bubble in chain["bubbles"]:
+        print(f"Bubble ID: {bubble['id']}")
+        print(f"Type: {bubble['type']}")
+        print(f"Ends: {bubble['ends']}")
+        print(f"Inside nodes: {bubble['inside']}")
+        if len(bubble['inside'])>1:
+            for path in bubble['inside']:
+                sequence = ''
+                for node in path:
+                    sequence = sequence + nodes[node]
+                print(f"Calling RegexPy with: {sequence}")
+                regex(sequence)
+        print("-----")
