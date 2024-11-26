@@ -3,7 +3,7 @@ import subprocess
 import json
 
 # Parameters
-gfa_file = "example3.gfa"
+gfa_file = "SARS-CoV2.gfa"
 out_json = "OUT_JSON"
 fasta = "FASTA"
 file_path = "OUT_JSON"
@@ -77,8 +77,11 @@ for chains in data:
         print(f"Type: {bubble['type']}")
         print(f"Ends: {bubble['ends']}")
         print(f"Inside nodes: {bubble['inside']}")
-        if len(bubble['inside']) > 1:
+        print()
+        if len(bubble['inside']) > 1:   # If not only insertion bubble
+            bubble_repetitions = {}
 
+            # Find the repetitions
             for path in bubble['inside']:
                 sequence = ''
                 if isinstance(path, str):
@@ -86,8 +89,28 @@ for chains in data:
                 else:
                     for node in path:
                         sequence = sequence + nodes[node]
-                print(f"Calling RegexPy with: {sequence}")
-                rep = regex(sequence)
+                print(f"Calling RegexPy with: {sequence} for node {path}")
+                bubble_repetitions[path] = regex(sequence)
+
+            # Analysis of repetitions
+            for node_with_repetition in bubble_repetitions:
+                for repetition in bubble_repetitions[node_with_repetition]:
+                    if len(repetition) > 0:
+                        fusible_nodes = list(node_with_repetition)
+                        for node in bubble_repetitions:
+                            # Check if any other node contains the same repetition
+                            for node_repetition in bubble_repetitions[node]:
+                                if len(node_repetition[0]) > 1:
+                                    if node_repetition[0] == repetition[0] and node != node_with_repetition:
+                                        fusible_nodes.append(node)
+                                        bubble_repetitions[node].remove(node_repetition)
+                            # Or if any other node contains the repeated sequence
+                            if node not in fusible_nodes and repetition[0] in nodes[node]:
+                                fusible_nodes.append(node)
+                        if len(fusible_nodes) > 1:
+                            print(f"{fusible_nodes} can be fused!")
+                        else:
+                            print(f"No structure modification proposed for repetition {repetition} of node {node_with_repetition}")
         else:
             print("No further analysis needed!")
         print("-----")
