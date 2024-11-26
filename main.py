@@ -77,11 +77,17 @@ for chains in data:
         print(f"Type: {bubble['type']}")
         print(f"Ends: {bubble['ends']}")
         print(f"Inside nodes: {bubble['inside']}")
-        if len(bubble['inside'])>1:
+        if len(bubble['inside']) > 1:
+
             for path in bubble['inside']:
                 sequence = ''
-                for node in path:
-                    sequence = sequence + nodes[node]
+                if isinstance(path, str):
+                    sequence = sequence + nodes[path]
+                else:
+                    for node in path:
+                        sequence = sequence + nodes[node]
                 print(f"Calling RegexPy with: {sequence}")
-                regex(sequence)
+                rep = regex(sequence)
+        else:
+            print("No further analysis needed!")
         print("-----")
