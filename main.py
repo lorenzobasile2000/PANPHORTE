@@ -11,6 +11,7 @@ file_path = "OUT_JSON"
 
 def read_gfa(file_gfa):
     nodes = {}
+    paths = {}
 
     with open(file_gfa, 'r') as gfa:
         for line in gfa:
@@ -21,13 +22,23 @@ def read_gfa(file_gfa):
             tipo_record = line[0]
 
             if tipo_record == 'S':
+                # Segmento: leggi l'ID e la sequenza
                 seq = line.split('\t')
                 if len(seq) >= 3:
                     id_node = seq[1]
                     sequence = seq[2]
                     nodes[id_node] = sequence  # Aggiungi il nodo e la sua sequenza
 
-    return nodes
+            elif tipo_record == 'P':
+                # Path: leggi l'ID del path e i segmenti attraversati
+                path = line.split('\t')
+                if len(path) >= 3:
+                    id_path = path[1]
+                    # Estrai solo gli ID dei segmenti, rimuovendo orientamento
+                    segments = [seg[:-1] if seg[-1] in "+-" else seg for seg in path[2].split(',')]
+                    paths[id_path] = segments  # Aggiungi il percorso e i suoi segmenti
+
+    return nodes, paths
 
 
 def regex(sequence):
@@ -50,7 +61,7 @@ def regex(sequence):
     return tandem_repetitions
 
 
-nodes = read_gfa(gfa_file)
+nodes, paths = read_gfa(gfa_file)
 # Command to execute Bubblegun
 command = ["BubbleGun", "-g", gfa_file, "bchains", "--bubble_json", out_json, "--fasta", fasta]
 
@@ -78,19 +89,39 @@ for chains in data:
         print(f"Ends: {bubble['ends']}")
         print(f"Inside nodes: {bubble['inside']}")
         print()
-        if len(bubble['inside']) > 1:   # If not only insertion bubble
+        if len(bubble['inside']) > 1:  # If not only insertion bubble
             bubble_repetitions = {}
 
+            # Check if some inside nodes are contiguous, in this case they need to merge into a single pathway
+            for inside_node in bubble['inside']:
+                for path in paths:
+                    if inside_node in paths[path]:
+                        contiguous_node = [path, inside_node]
+                        for other_node in bubble['inside']:
+                            if other_node in paths[path] and other_node != inside_node:
+                                bubble['inside'].remove(other_node)
+                                contiguous_node.append(other_node)
+                        if len(contiguous_node) > 2:
+                            bubble['inside'].append(contiguous_node)
+                            # TODO: il problema è se un nodo inside è presente in due pathway diversi, viene rimosso dal primo pathway e non calcolato nel secondo: si potrebbe fare una struct con un flag 'usato' e toglierlo alla fine solo se usato già
+                            bubble['inside'].remove(inside_node)
+
             # Find the repetitions
-            for path in bubble['inside']:
+            for inside_node in bubble['inside']:
                 sequence = ''
-                if isinstance(path, str):
-                    sequence = sequence + nodes[path]
+                if isinstance(inside_node, str):
+                    sequence = sequence + nodes[inside_node]
+                    print(f"Calling RegexPy with: {sequence} for node {inside_node}")
+                    bubble_repetitions[inside_node] = regex(sequence)
                 else:
-                    for node in path:
-                        sequence = sequence + nodes[node]
-                print(f"Calling RegexPy with: {sequence} for node {path}")
-                bubble_repetitions[path] = regex(sequence)
+                    path = inside_node[0]
+                    path_of_sequence = []
+                    for node in paths[path]:
+                        if node in inside_node:
+                            path_of_sequence.append(node)
+                            sequence = sequence + nodes[node]
+                    print(f"Calling RegexPy with: {sequence} for nodes {path_of_sequence}")
+                    bubble_repetitions[(tuple(path_of_sequence), sequence)] = regex(sequence)
 
             # Analysis of repetitions
             for node_with_repetition in bubble_repetitions:
@@ -105,12 +136,19 @@ for chains in data:
                                         fusible_nodes.append(node)
                                         bubble_repetitions[node].remove(node_repetition)
                             # Or if any other node contains the repeated sequence
-                            if node not in fusible_nodes and repetition[0] in nodes[node]:
-                                fusible_nodes.append(node)
+                            if node not in fusible_nodes and isinstance(node, str):
+                                if repetition[0] in nodes[node]:
+                                    fusible_nodes.append(node)
+                            elif node not in fusible_nodes and repetition[0] in node[1]:
+                                    fusible_nodes.append(node[0])
                         if len(fusible_nodes) > 1:
-                            print(f"{fusible_nodes} can be fused!")
+                            print(f"{fusible_nodes} can be fused due to {repetition}!")
+                            # TODO: change GFA
+
                         else:
-                            print(f"No structure modification proposed for repetition {repetition} of node {node_with_repetition}")
+                            print(
+                                f"No structure modification proposed for repetition {repetition} of node {node_with_repetition}")
+                            # bubble_repetitions[node_with_repetition].remove(repetition)
         else:
             print("No further analysis needed!")
         print("-----")
