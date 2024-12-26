@@ -1,12 +1,14 @@
 import re
 import subprocess
 import json
+import numpy as np
 
 # Parameters
-gfa_file = "SARS-CoV2.gfa"
+gfa_file = "MHC_msa_final.gfa"
 out_json = "OUT_JSON"
 fasta = "FASTA"
 file_path = "OUT_JSON"
+repetition_length = 5
 
 
 def read_gfa(file_gfa):
@@ -48,15 +50,16 @@ def regex(sequence):
     tandem_repetitions = []
     for match in matches:
         repetition = match.group(1)
-        times = len(match.group(0)) // len(repetition)
-        position = match.start()
-        tandem_repetitions.append((repetition, times, position))
+        if len(repetition) > repetition_length:
+            times = len(match.group(0)) // len(repetition)
+            position = match.start()
+            tandem_repetitions.append((repetition, times, position))
 
-    if tandem_repetitions:
-        for repetition, times, position in tandem_repetitions:
-            print(f"{repetition} repeated {times} times at position {position}\n")
-    else:
-        print("No tandem repetition find.\n")
+    # if tandem_repetitions:
+    #     for repetition, times, position in tandem_repetitions:
+    #         print(f"{repetition} repeated {times} times at position {position}\n")
+    # else:
+    #     print("No tandem repetition find.\n")
 
     return tandem_repetitions
 
@@ -91,56 +94,63 @@ for chains in data:
         print()
         if len(bubble['inside']) > 1:  # If not only insertion bubble
             bubble_repetitions = {}
-
+            used = {haplotype: 0 for haplotype in paths}
+            haplotypes = []
             # Check if some inside nodes are contiguous, in this case they need to merge into a single pathway
             for inside_node in bubble['inside']:
                 for path in paths:
-                    if inside_node in paths[path]:
-                        contiguous_node = [path, inside_node]
-                        for other_node in bubble['inside']:
-                            if other_node in paths[path] and other_node != inside_node:
-                                bubble['inside'].remove(other_node)
-                                contiguous_node.append(other_node)
-                        if len(contiguous_node) > 2:
-                            bubble['inside'].append(contiguous_node)
-                            # TODO: il problema è se un nodo inside è presente in due pathway diversi, viene rimosso dal primo pathway e non calcolato nel secondo: si potrebbe fare una struct con un flag 'usato' e toglierlo alla fine solo se usato già
-                            bubble['inside'].remove(inside_node)
+                    if used[path] == 0:
+                        if inside_node in paths[path]:
+                            contiguous_node = [path, inside_node]
+                            for other_node in bubble['inside']:
+                                if other_node in paths[path] and other_node != inside_node:
+                                    # bubble['inside'].remove(other_node)
+                                    contiguous_node.append(other_node)
+                            if len(contiguous_node) > 1:
+                                haplotypes.append(contiguous_node)
+                                used[path] = 1
 
             # Find the repetitions
-            for inside_node in bubble['inside']:
+            for haplotype in haplotypes:
                 sequence = ''
-                if isinstance(inside_node, str):
-                    sequence = sequence + nodes[inside_node]
-                    print(f"Calling RegexPy with: {sequence} for node {inside_node}")
-                    bubble_repetitions[inside_node] = regex(sequence)
+                if isinstance(haplotype, str):
+                    sequence = sequence + nodes[haplotype]
+                    # print(f"Calling RegexPy with: {sequence} for node {haplotype}")
+                    bubble_repetitions[haplotype] = regex(sequence)
                 else:
-                    path = inside_node[0]
+                    path = haplotype[0]
                     path_of_sequence = []
-                    for node in paths[path]:
-                        if node in inside_node:
+                    for node in paths[path]:  # TODO: si può semplificare invertendo la logica?
+                        if node in haplotype:
                             path_of_sequence.append(node)
                             sequence = sequence + nodes[node]
-                    print(f"Calling RegexPy with: {sequence} for nodes {path_of_sequence}")
-                    bubble_repetitions[(tuple(path_of_sequence), sequence)] = regex(sequence)
+                    # print(f"Calling RegexPy with: {sequence} \n for nodes {path_of_sequence}")
+                    bubble_repetitions[haplotype[0], tuple(path_of_sequence)] = regex(sequence)
 
             # Analysis of repetitions
             for node_with_repetition in bubble_repetitions:
                 for repetition in bubble_repetitions[node_with_repetition]:
                     if len(repetition) > 0:
-                        fusible_nodes = list(node_with_repetition)
+                        fusible_nodes = list()
+                        fusible_nodes.append(node_with_repetition)
                         for node in bubble_repetitions:
-                            # Check if any other node contains the same repetition
-                            for node_repetition in bubble_repetitions[node]:
-                                if len(node_repetition[0]) > 1:
-                                    if node_repetition[0] == repetition[0] and node != node_with_repetition:
+                            if node != node_with_repetition:
+                                # Check if any other node contains the same repetition
+                                for node_repetition in bubble_repetitions[node]:
+                                    if len(node_repetition[0]) > 1:
+                                        if node_repetition[0] == repetition[0] and node != node_with_repetition:
+                                            fusible_nodes.append(node)
+                                            bubble_repetitions[node].remove(node_repetition)
+                                # Or if any other node contains the repeated sequence
+                                if node not in fusible_nodes and isinstance(node, str):
+                                    if repetition[0] in nodes[node]:
                                         fusible_nodes.append(node)
-                                        bubble_repetitions[node].remove(node_repetition)
-                            # Or if any other node contains the repeated sequence
-                            if node not in fusible_nodes and isinstance(node, str):
-                                if repetition[0] in nodes[node]:
-                                    fusible_nodes.append(node)
-                            elif node not in fusible_nodes and repetition[0] in node[1]:
-                                    fusible_nodes.append(node[0])
+                                elif node not in fusible_nodes:
+                                    sequence = ''
+                                    for inside_node in node[1]:
+                                        sequence = sequence + nodes[inside_node]
+                                    if repetition[0] in sequence:
+                                        fusible_nodes.append(node)
                         if len(fusible_nodes) > 1:
                             print(f"{fusible_nodes} can be fused due to {repetition}!")
                             # TODO: change GFA
