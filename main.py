@@ -11,7 +11,7 @@ output_gfa = "out.gfa"
 out_json = "OUT_JSON"
 fasta = "FASTA"
 file_path = "OUT_JSON"
-repetition_length = 5
+repetition_length = 1
 
 
 def read_gfa(file_gfa):
@@ -126,7 +126,20 @@ for chains in data:
         print()
         start_node = bubble['ends'][0]
         final_node = bubble['ends'][1]
-
+        ok = 0
+        # Searching for right starting and final node
+        for path in paths:
+            for node in paths[path]:
+                if node == start_node:
+                    ok = 1
+                    break
+                if node == final_node:
+                    final_node = start_node
+                    start_node = node
+                    ok = 1
+                    break
+            if ok:
+                break
         if len(bubble['inside']) > 1:  # If not only insertion bubble
             bubble_repetitions = {}
             used = {haplotype: 0 for haplotype in paths}
@@ -194,99 +207,113 @@ for chains in data:
                             #         f"No structure modification proposed for repetition {repetition} of node {node_with_repetition}")
                             #     # bubble_repetitions[node_with_repetition].remove(repetition)
             # Modify the morphology by reconstructing the original sequences of the different pathway and comparing it
-            print(f"{selected_repetition[1]} can be fused due to {selected_repetition[0]}!")
-            # Reconstruct original sequences
-            fusible_sequences = {}
-            for fusible_path in selected_repetition[1]:
-                sequence = ''
-                for node in fusible_path[1]:
-                    sequence += nodes[node]
-                fusible_sequences[fusible_path[0]] = sequence
-            # New node for the repetition, valid for each haplotype
-            new_rep_id = new_random_id(nodes, "REP")
-            nodes[new_rep_id] = selected_repetition[0][0]
-            up_flk_dict = {}
-            dw_flk_dict = {}
-            for haplotype in selected_repetition[1]:
-                current_sequence = fusible_sequences[haplotype[0]]
-                # Select the right repetition
-                current_rep = tuple()
-                for rep in original_repetition[haplotype]:
-                    if rep[0] == selected_repetition[0][0]:
-                        current_rep = rep
-                # It means that the node doesn't contain repetition itself, but the repetition is present one time
-                if len(current_rep) < 2:
-                    current_rep = (selected_repetition[0][0], 1, current_sequence.find(selected_repetition[0][0]))
-                # New node for upstream and downstream flanking sequence, if needed
-                # If repetition doesn't start at position 0
-                if current_rep[2] > 0:
-                    # This is the upstream flanking sequence
-                    up_flk_seq = current_sequence[:current_rep[2]]
-                    # If I didn't create a node for this upstream sequence yet
-                    if up_flk_seq not in up_flk_dict:
-                        # In this case I need to create a new node, link them to the starting node of the
-                        # bubble and to the repeated node
-                        new_up_flk_id = new_random_id(nodes, "UP_FLK")
-                        up_flk_dict[up_flk_seq] = new_up_flk_id
-                        nodes[new_up_flk_id] = up_flk_seq
-                        links.append((start_node, '+', new_up_flk_id, '+', '0M'))
-                        links.append((new_up_flk_id, '+', new_rep_id, '+', '0M'))
+            if len(selected_repetition) == 2:
+                print(f"{selected_repetition[1]} can be fused due to {selected_repetition[0]}!")
+                # Reconstruct original sequences
+                fusible_sequences = {}
+                for fusible_path in selected_repetition[1]:
+                    sequence = ''
+                    for node in fusible_path[1]:
+                        sequence += nodes[node]
+                    fusible_sequences[fusible_path[0]] = sequence
+                # New node for the repetition, valid for each haplotype
+                new_rep_id = new_random_id(nodes, "REP")
+                nodes[new_rep_id] = selected_repetition[0][0]
+                links.append((new_rep_id, '+', new_rep_id, '+', '0M'))
+                up_flk_dict = {}
+                dw_flk_dict = {}
+                link_between_start_rep = 0
+                link_between_rep_end = 0
+                for haplotype in selected_repetition[1]:
+                    current_sequence = fusible_sequences[haplotype[0]]
+                    # Select the right repetition
+                    current_rep = tuple()
+                    for rep in original_repetition[haplotype]:
+                        if rep[0] == selected_repetition[0][0]:
+                            current_rep = rep
+                    # It means that the node doesn't contain repetition itself, but the repetition is present one time
+                    if len(current_rep) < 2:
+                        current_rep = (selected_repetition[0][0], 1, current_sequence.find(selected_repetition[0][0]))
+                    # New node for upstream and downstream flanking sequence, if needed
+                    # If repetition doesn't start at position 0
+                    if current_rep[2] > 0:
+                        # This is the upstream flanking sequence
+                        up_flk_seq = current_sequence[:current_rep[2]]
+                        # If I didn't create a node for this upstream sequence yet
+                        if up_flk_seq not in up_flk_dict:
+                            # In this case I need to create a new node, link them to the starting node of the
+                            # bubble and to the repeated node
+                            new_up_flk_id = new_random_id(nodes, "UP_FLK")
+                            up_flk_dict[up_flk_seq] = new_up_flk_id
+                            nodes[new_up_flk_id] = up_flk_seq
+                            links.append((start_node, '+', new_up_flk_id, '+', '0M'))
+                            links.append((new_up_flk_id, '+', new_rep_id, '+', '0M'))
+                        else:
+                            new_up_flk_id = up_flk_dict[up_flk_seq]
                     else:
-                        new_up_flk_id = up_flk_dict[up_flk_seq]
-                else:
-                    # In this case I need to link starting node to repeated node
-                    new_up_flk_id = 'NONE'
-                    links.append((start_node, '+', new_rep_id, '+', '0M'))
-                # This is the downstream flanking sequence
-                # rep[0] = sequence of the repetition
-                # rep[1] = times
-                # rep[2] = starting position
-                tmp = len(current_sequence)
-                dw_flk_position = current_rep[2] + len(current_rep[0]) * current_rep[1]
-                # If the repetition doesn't end at the sequence length
-                if dw_flk_position < len(current_sequence):
-                    dw_flk_seq = current_sequence[dw_flk_position:]
-                    # If I didn't create a node for this downstream sequence yet
-                    if dw_flk_seq not in dw_flk_dict:
-                        # In this case I need to create a new node, link them to the repeated node and to the
-                        # final node of the bubble
-                        new_dw_flk_id = new_random_id(nodes, "DW_FLK")
-                        dw_flk_dict[dw_flk_seq] = new_dw_flk_id
-                        nodes[new_dw_flk_id] = dw_flk_seq
-                        links.append((new_rep_id, '+', new_dw_flk_id, '+', '0M'))
-                        links.append((new_dw_flk_id, '+', final_node, '+', '0M'))
+                        # In this case I need to link starting node to repeated node
+                        new_up_flk_id = 'NONE'
+                        if link_between_start_rep == 0:
+                            links.append((start_node, '+', new_rep_id, '+', '0M'))
+                            link_between_start_rep = 1
+                    # This is the downstream flanking sequence
+                    # rep[0] = sequence of the repetition
+                    # rep[1] = times
+                    # rep[2] = starting position
+                    tmp = len(current_sequence)
+                    dw_flk_position = current_rep[2] + len(current_rep[0]) * current_rep[1]
+                    # If the repetition doesn't end at the sequence length
+                    if dw_flk_position < len(current_sequence):
+                        dw_flk_seq = current_sequence[dw_flk_position:]
+                        # If I didn't create a node for this downstream sequence yet
+                        if dw_flk_seq not in dw_flk_dict:
+                            # In this case I need to create a new node, link them to the repeated node and to the
+                            # final node of the bubble
+                            new_dw_flk_id = new_random_id(nodes, "DW_FLK")
+                            dw_flk_dict[dw_flk_seq] = new_dw_flk_id
+                            nodes[new_dw_flk_id] = dw_flk_seq
+                            links.append((new_rep_id, '+', new_dw_flk_id, '+', '0M'))
+                            links.append((new_dw_flk_id, '+', final_node, '+', '0M'))
+                        else:
+                            new_dw_flk_id = dw_flk_dict[dw_flk_seq]
                     else:
-                        new_dw_flk_id = dw_flk_dict[dw_flk_seq]
-                else:
-                    # In this case I need to link repeated node to the final node
-                    new_dw_flk_id = 'NONE'
-                    links.append((new_rep_id, '+', final_node, '+', '0M'))
-                # Now I'm ready to modify the pathway
-                current_path = haplotype[0]
-                # Find the position of the starting node
-                index = paths[current_path].index(start_node)
-                # If upstream flanking node
-                if new_up_flk_id != 'NONE':
-                    paths[current_path].insert(index+1, new_up_flk_id)
+                        # In this case I need to link repeated node to the final node
+                        new_dw_flk_id = 'NONE'
+                        if link_between_rep_end == 0:
+                            links.append((new_rep_id, '+', final_node, '+', '0M'))
+                            link_between_rep_end = 1
+                    # Now I'm ready to modify the pathway
+                    current_path = haplotype[0]
+                    # Find the position of the starting node
+                    index = paths[current_path].index(start_node)
+                    # If upstream flanking node
+                    if new_up_flk_id != 'NONE':
+                        paths[current_path].insert(index+1, new_up_flk_id)
+                        index += 1
+                    # Adding repeated node for each time the repetition is present
+                    times = current_rep[1]
                     index += 1
-                # Adding repeated node for each time the repetition is present
-                times = current_rep[1]
-                for i in range(1, times):
-                    paths[current_path].insert(index + i, new_rep_id)
-                # If downstream flanking node
-                if new_dw_flk_id != 'NONE':
-                    paths[current_path].insert(index + 1, new_dw_flk_id)
-            # Remove old nodes
-            deleted_nodes = []
-            for path in selected_repetition[1]:
-                for node in path[1]:
-                    if node in nodes:
-                        del nodes[node]
-                        deleted_nodes.append(node)
-            # Cleaning up old links
-            for link in links:
-                if link[0] in deleted_nodes or link[2] in deleted_nodes:
-                    links.remove(link)
+                    for i in range(0, times):
+                        paths[current_path].insert(index + i, new_rep_id)
+                        index += 1
+                    # If downstream flanking node
+                    if new_dw_flk_id != 'NONE':
+                        paths[current_path].insert(index + 1, new_dw_flk_id)
+                # Remove old nodes
+                deleted_nodes = []
+                for path in selected_repetition[1]:
+                    for node in path[1]:
+                        if node in nodes:
+                            del nodes[node]
+                            deleted_nodes.append(node)
+                        if node in paths[path[0]]:
+                            paths[path[0]].remove(node)
+                # Cleaning up old links
+                for link in links:
+                    if link[0] in deleted_nodes or link[2] in deleted_nodes:
+                        links.remove(link)
+            else:
+                print("No repetition found!")
         else:
             print("No further analysis needed!")
         print("-----")
