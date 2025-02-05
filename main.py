@@ -1,18 +1,29 @@
+import argparse
 import re
 import subprocess
 import json
 import random
 import copy
+import os
 import numpy as np
 
-# Parameters
-gfa_file = "MHC_msa_final.gfa"
-output_gfa = "out.gfa"
+# Parser per gli argomenti della riga di comando
+parser = argparse.ArgumentParser(description="Process a GFA file and modify it.")
+parser.add_argument("-i", "--input", required=True, help="Input GFA file")
+parser.add_argument("-o", "--output_dir", default=".", help="Output directory for the modified GFA file")
+args = parser.parse_args()
+
+# Creazione della directory di output se non esiste
+os.makedirs(args.output_dir, exist_ok=True)
+
+# File di input e output
+gfa_file = args.input
+output_gfa = os.path.join(args.output_dir, os.path.splitext(os.path.basename(gfa_file))[0] + "_mod.gfa")
+
 out_json = "OUT_JSON"
 fasta = "FASTA"
 file_path = "OUT_JSON"
 repetition_length = 1
-
 
 def read_gfa(file_gfa):
     """
@@ -115,15 +126,15 @@ with open(file_path, "r") as file:
 
 for chains in data:
     chain = data[chains]
-    print("Chain ID:", chain["chain_id"])
-    print("Chain Ends:", chain["ends"])
-    print()
+    # print("Chain ID:", chain["chain_id"])
+    # print("Chain Ends:", chain["ends"])
+    # print()
     for bubble in chain["bubbles"]:
-        print(f"Bubble ID: {bubble['id']}")
-        print(f"Type: {bubble['type']}")
-        print(f"Ends: {bubble['ends']}")
-        print(f"Inside nodes: {bubble['inside']}")
-        print()
+        # print(f"Bubble ID: {bubble['id']}")
+        # print(f"Type: {bubble['type']}")
+        # print(f"Ends: {bubble['ends']}")
+        # print(f"Inside nodes: {bubble['inside']}")
+        # print()
         start_node = bubble['ends'][0]
         final_node = bubble['ends'][1]
         ok = 0
@@ -208,8 +219,8 @@ for chains in data:
                             #     # bubble_repetitions[node_with_repetition].remove(repetition)
             # Modify the morphology by reconstructing the original sequences of the different pathway and comparing it
             if len(selected_repetition) == 2:
-                print(f"{selected_repetition[1]} can be fused due to {selected_repetition[0]}!")
-                # Reconstruct original sequences
+                # print(f"{selected_repetition[1]} can be fused due to {selected_repetition[0]}!")
+                # # Reconstruct original sequences
                 fusible_sequences = {}
                 for fusible_path in selected_repetition[1]:
                     sequence = ''
@@ -312,11 +323,11 @@ for chains in data:
                 for link in links:
                     if link[0] in deleted_nodes or link[2] in deleted_nodes:
                         links.remove(link)
-            else:
-                print("No repetition found!")
-        else:
-            print("No further analysis needed!")
-        print("-----")
+        #     else:
+        #         print("")
+        # else:
+        #     print("")
+        # # print("-----")
 
 with open(output_gfa, 'w') as gfa:
     # Scrivi l'header
