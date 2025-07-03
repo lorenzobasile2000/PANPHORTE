@@ -46,10 +46,10 @@ This repository integrates four tools to:
 
 ## 🚀 Step 2: VG Toolkit (Graph Construction)
 
-    ```bash
-    cd ..
-    bash vg_execution.sh
-    ```
+```bash
+cd ..
+bash vg_execution.sh
+   ```
 
 - Generates `.vg` and `.gfa` files per chromosome starting from `.fasta` files.
 
