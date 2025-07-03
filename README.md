@@ -1,4 +1,4 @@
-# CNV-to-Graph Pipeline
+# PANPHORTE - Pangenome Graphs Topology Optimizer
 
 This repository integrates four tools to:
 1. Simulate Copy Number Variations (CNV) and generate Multiple Sequence Alignments (MSA)
