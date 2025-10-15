@@ -160,9 +160,12 @@ with open(file_path, "r") as file:
     data = json.load(file)
 
 # ---- Corpo logico: come prima, ma agendo su 'walks' ----
+innn=0
 for chains in data:
     chain = data[chains]
     for bubble in chain["bubbles"]:
+        print(str(innn)+"\n")
+        innn=innn+1
         start_node = bubble['ends'][0]
         final_node = bubble['ends'][1]
         ok = 0
@@ -240,7 +243,6 @@ for chains in data:
 
             # Modifica struttura della bubble usando il nodo ciclico
             if len(selected_repetition) == 2:
-                print("\nFound\n")
                 fusible_sequences = {}
                 for fusible in selected_repetition[1]:
                     seq = ''.join(nodes[n] for n in fusible[1])
