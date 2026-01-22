@@ -1,9 +1,11 @@
 #!/bin/bash
 
 # Configurazione
-CPP_SOURCE="main.cpp"
+CPP_SOURCE="main1.cpp"
 CPP_EXECUTABLE="panphorte"
 PYTHON_SCRIPT="main_walks.py"
+INPUT_GFA="../chr9B_walks_fix.gfa"
+# INPUT_GFA="../example3_walks.gfa"
 
 # Colori per output
 RED='\033[0;31m'
@@ -32,23 +34,23 @@ fi
 echo ""
 
 # 2. Esegui il programma Python
-echo -e "${YELLOW}Esecuzione di $PYTHON_SCRIPT...${NC}"
-echo "--- Output Python ---"
-python3 ../"$PYTHON_SCRIPT" -i ../example3_walks.gfa
-PYTHON_EXIT=$?
+# echo -e "${YELLOW}Esecuzione di $PYTHON_SCRIPT...${NC}"
+# echo "--- Output Python ---"
+# /usr/bin/time -f "Time (Python): %e %E, MAX Memory: %M KB" python3 ../"$PYTHON_SCRIPT" -i "$INPUT_GFA"
+# PYTHON_EXIT=$?
 
-if [ $PYTHON_EXIT -eq 0 ]; then
-    echo -e "${GREEN}✓ Python terminato con successo${NC}"
-else
-    echo -e "${RED}✗ Python terminato con errore (codice: $PYTHON_EXIT)${NC}"
-fi
+# if [ $PYTHON_EXIT -eq 0 ]; then
+#     echo -e "${GREEN}✓ Python terminato con successo${NC}"
+# else
+#     echo -e "${RED}✗ Python terminato con errore (codice: $PYTHON_EXIT)${NC}"
+# fi
 
-echo ""
+# echo ""
 
 # 3. Esegui il programma C++
 echo -e "${YELLOW}Esecuzione di $CPP_EXECUTABLE...${NC}"
 echo "--- Output C++ ---"
-./"$CPP_EXECUTABLE" -i ../example3_walks.gfa
+/usr/bin/time -f "Time (C++): %e %E, MAX Memory: %M KB" ./"$CPP_EXECUTABLE" -i "$INPUT_GFA"
 CPP_EXIT=$?
 
 if [ $CPP_EXIT -eq 0 ]; then
