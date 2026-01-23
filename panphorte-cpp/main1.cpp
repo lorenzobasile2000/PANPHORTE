@@ -51,7 +51,7 @@ struct GFAData
     unordered_map<string, string> nodes;         // id -> sequence
     unordered_map<string, vector<string>> paths; // path_id -> segments (senza orientamento)
     vector<Link> links;
-
+    int last_ID;
     unordered_map<string, Walk> walks; // walk_id -> Walk
 };
 
@@ -116,7 +116,7 @@ static inline vector<pair<string, char>> parse_walk_string(const string &walk_st
 static std::string format_walk_segments(const std::vector<std::pair<std::string, char>> &segs)
 {
     std::string out;
-    out.reserve(segs.size() * 8);
+    // out.reserve(segs.size() * 8);
     for (const auto &[seg, orient] : segs)
     {
         out.push_back(orient == '+' ? '>' : '<');
@@ -128,16 +128,16 @@ static std::string format_walk_segments(const std::vector<std::pair<std::string,
 // Helpers per il parsing del json
 // Restituisce true se segments contiene un tuple (seg_id, _)
 // Not used anymore!!!
-// static bool contains_seg(const std::vector<std::pair<std::string, char>> &segments,
-//                          const std::string &seg_id)
-// {
-//     for (const auto &[sid, orient] : segments)
-//     {
-//         if (sid == seg_id)
-//             return true;
-//     }
-//     return false;
-// }
+static bool contains_seg(const std::vector<std::pair<std::string, char>> &segments,
+                         const std::string &seg_id)
+{
+    for (const auto &[sid, orient] : segments)
+    {
+        if (sid == seg_id)
+            return true;
+    }
+    return false;
+}
 
 // Restituisce l’indice del primo segmento che ha seg_id == sid
 // Se non lo trova, solleva un’eccezione (come il tuo ValueError)
@@ -161,7 +161,7 @@ static int find_index_by_seg(const std::vector<std::pair<std::string, char>> &se
 }
 
 // with fixed size random ids (at most, 10 characters after prefix)
-static std::string new_random_id(const std::unordered_map<std::string, std::string> &existing, const std::string &prefix)
+static std::string new_random_id(const std::unordered_map<std::string, std::string> &existing, const std::string &prefix, GFAData &gfa_data)
 {
     static std::mt19937_64 rng{std::random_device{}()};
     for (;;)
@@ -174,8 +174,8 @@ static std::string new_random_id(const std::unordered_map<std::string, std::stri
 
         // 2. Convert the shortened number to a string.
         std::string x_str = std::to_string(x_short);
-
-        std::string id = prefix + "_" + x_str;
+        gfa_data.last_ID++;
+        std::string id = to_string(gfa_data.last_ID);
 
         if (!existing.count(id))
             return id;
@@ -311,6 +311,7 @@ int run_bubblegun(const std::string &bubblegun_bin,
 GFAData read_gfa(const string &file_gfa)
 {
     GFAData out;
+    out.last_ID = 0;
     std::ifstream in(file_gfa);
     if (!in)
     {
@@ -347,6 +348,10 @@ GFAData read_gfa(const string &file_gfa)
                 const std::string &id_node = fields[1];
                 const std::string &sequence = fields[2];
                 out.nodes[id_node] = sequence;
+                if (stoi(id_node) > out.last_ID)
+                {
+                    out.last_ID = stoi(id_node);
+                }
             }
             break;
         }
@@ -447,61 +452,74 @@ GFAData read_gfa(const string &file_gfa)
             break;
         }
     }
+    cerr << "LastID: " << out.last_ID << "\n";
 
     return out;
 }
 
 // Funzione helper per decidere se invertire l'iterazione
 // Ritorna TRUE se dobbiamo iterare al contrario (dall'ultima alla prima)
-bool should_iterate_backwards(const json& chain, const GFAData& gfa_data) {
-    if (chain["bubbles"].size() < 2) return false;
+bool should_iterate_backwards(const json &chain, const GFAData &gfa_data)
+{
+    if (chain["bubbles"].size() < 2)
+        return false;
 
     // 1. Troviamo una walk di riferimento (qualsiasi walk che passi per la catena)
     //    Ci serve solo per capire dov'è l'inizio biologico.
-    const std::string* ref_walk_ptr = nullptr;
+    const std::string *ref_walk_ptr = nullptr;
     std::string start_node = chain["ends"][0];
-    
+
     // Cerca velocemente una walk che contiene il nodo start della catena
-    if (gfa_data.nodes.empty()) return false;
-    
+    if (gfa_data.nodes.empty())
+        return false;
+
     // Usa l'indice inverso se disponibile, altrimenti scan rapido
     // Qui assumiamo scan rapido per semplicità, ci si ferma alla prima trovata
-    for (const auto& [w_id, walk] : gfa_data.walks) {
-        for (const auto& seg : walk.segments) {
-            if (seg.first == start_node) {
+    for (const auto &[w_id, walk] : gfa_data.walks)
+    {
+        for (const auto &seg : walk.segments)
+        {
+            if (seg.first == start_node)
+            {
                 ref_walk_ptr = &w_id;
                 break;
             }
         }
-        if (ref_walk_ptr) break;
+        if (ref_walk_ptr)
+            break;
     }
-    
-    if (!ref_walk_ptr) return false; // Non possiamo determinare, default forward
+
+    if (!ref_walk_ptr)
+        return false; // Non possiamo determinare, default forward
 
     // 2. Analizziamo la PRIMA bolla del JSON
-    const json& first_bubble = chain["bubbles"][0];
+    const json &first_bubble = chain["bubbles"][0];
     std::string b_end1 = first_bubble["ends"][0];
     std::string b_end2 = first_bubble["ends"][1];
 
     // 3. Analizziamo l'ULTIMA bolla del JSON
-    const json& last_bubble = chain["bubbles"].back();
+    const json &last_bubble = chain["bubbles"].back();
     std::string l_end1 = last_bubble["ends"][0];
     std::string l_end2 = last_bubble["ends"][1];
 
     // 4. Verifichiamo la posizione genomica sulla walk di riferimento
-    const auto& segs = gfa_data.walks.at(*ref_walk_ptr).segments;
-    
+    const auto &segs = gfa_data.walks.at(*ref_walk_ptr).segments;
+
     long long pos_first_bubble = 999999999;
     long long pos_last_bubble = 999999999;
 
-    for (size_t i = 0; i < segs.size(); ++i) {
-        if (pos_first_bubble == 999999999 && (segs[i].first == b_end1 || segs[i].first == b_end2)) {
+    for (size_t i = 0; i < segs.size(); ++i)
+    {
+        if (pos_first_bubble == 999999999 && (segs[i].first == b_end1 || segs[i].first == b_end2))
+        {
             pos_first_bubble = (long long)i;
         }
-        if (pos_last_bubble == 999999999 && (segs[i].first == l_end1 || segs[i].first == l_end2)) {
+        if (pos_last_bubble == 999999999 && (segs[i].first == l_end1 || segs[i].first == l_end2))
+        {
             pos_last_bubble = (long long)i;
         }
-        if (pos_first_bubble != 999999999 && pos_last_bubble != 999999999) break;
+        if (pos_first_bubble != 999999999 && pos_last_bubble != 999999999)
+            break;
     }
 
     // SE la prima bolla nel JSON appare DOPO l'ultima bolla nel genoma
@@ -532,10 +550,10 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
     // ---------------------------------
 
     // Mappa dei cursori: per ogni walk, ricorda l'ultimo indice visitato (inizialmente 0)
-    std::unordered_map<std::string, size_t> walk_cursors;
-    for (const auto& [w_id, _] : gfa_data.walks) {
-        walk_cursors[w_id] = 0;
-    }
+    // std::unordered_map<std::string, size_t> walk_cursors;
+    // for (const auto& [w_id, _] : gfa_data.walks) {
+    //     walk_cursors[w_id] = 0;
+    // }
 
     int innn = 0;
     for (auto it = data.begin(); it != data.end(); ++it)
@@ -544,18 +562,19 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
         if (!chain.contains("bubbles") || !chain["bubbles"].is_array())
             continue;
 
-        bool backwards = true;
+        // bool backwards = true;
 
         // bool backwards = should_iterate_backwards(chain, gfa_data);
 
-        size_t num_bubbles = chain["bubbles"].size();
-        
-        for (size_t i = 0; i < num_bubbles; ++i)
+        // size_t num_bubbles = chain["bubbles"].size();
+
+        for (const auto &bubble : chain["bubbles"])
         {
+            // cerr << "Bubble " << i << "/"<< num_bubbles << "\n";
             // Se backwards, prendiamo l'indice partendo dal fondo
-            size_t idx = backwards ? (num_bubbles - 1 - i) : i;
-            
-            const json &bubble = chain["bubbles"][idx];
+            // size_t idx = backwards ? (num_bubbles - 1 - i) : i;
+
+            // const json &bubble = chain["bubbles"][idx];
 
             ++innn;
             // cout << "Processing bubble " << bubble["id"] << "...\n";
@@ -588,89 +607,52 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
                 if (ok)
                     break;
             }
+            // cerr << " ID check ";
 
             if (!bubble.contains("inside") || !bubble["inside"].is_array())
                 continue;
 
-            std::vector<std::vector<std::string>> haplotypes;
-
             // --- TIMING SECTION START: Haplotype Scanning ---
             auto start_scan = std::chrono::high_resolution_clock::now();
 
-            for (const auto& kv : gfa_data.walks) 
+            std::vector<std::string> inside;
+            inside.reserve(bubble["inside"].size());
+            for (auto &el : bubble["inside"])
+                inside.push_back(el.get<std::string>());
+
+            if (inside.size() <= 1)
+                continue;
+
+            // Group contiguous inside nodes per walk (haplotypes)
+            std::unordered_map<std::string, int> used;
+            for (auto &kv : gfa_data.walks)
+                used[kv.first] = 0;
+
+            std::vector<std::vector<std::string>> haplotypes;
+            for (const auto &inside_node : inside)
             {
-                const std::string& w_id = kv.first;
-                // Otteniamo riferimento alla walk e al suo cursore
-                const auto& walk = kv.second;
-                size_t& current_cursor = walk_cursors[w_id]; // Riferimento per aggiornarlo dopo
-
-                // print current cursor and w_id for debugging
-                // std::cout << "Current cursor for walk " << w_id << ": " << current_cursor << "\n";
-
-                // Se il cursore è già alla fine della walk, saltiamo
-                if (current_cursor >= walk.segments.size()) continue;
-
-                // cerchiamo START_NODE partendo da 'current_cursor' (ovvero da dove eravamo rimasti)
-                auto start_it = std::find_if(
-                    walk.segments.begin() + current_cursor, 
-                    walk.segments.end(),
-                    [&](const auto& seg) { return seg.first == start_node; }
-                );
-
-                // Se non troviamo lo start DOPO il cursore attuale, questa walk non "partecipa"
-                // a questa bolla (oppure le bolle non sono ordinate).
-                if (start_it == walk.segments.end()) continue;
-
-                // print found start_it for debugging
-                // std::cout << "Found start_node " << start_node << " in walk " << w_id << " at position " 
-                //           << std::distance(walk.segments.begin(), start_it) << "\n";
-
-                // cerchiamo END_NODE partendo subito dopo start_node
-                auto end_it = std::find_if(
-                    start_it + 1, 
-                    walk.segments.end(),
-                    [&](const auto& seg) { return seg.first == final_node; }
-                );
-
-                // Se troviamo anche la fine, abbiamo un match
-                if (end_it != walk.segments.end()) 
+                for (auto &wkv : gfa_data.walks)
                 {
-                    // print found end_it for debugging
-                    // std::cout << "Found final_node " << final_node << " in walk " << w_id << " at position " 
-                    //           << std::distance(walk.segments.begin(), end_it) << "\n";
-
-                    // ESTRAZIONE (Start -> Inside -> End)
-                    std::vector<std::string> path;
-                    // Pre-allocazione: distanza tra iteratori
-                    path.reserve(std::distance(start_it, end_it) + 1); 
-                    
-                    path.push_back(w_id);
-                    
-                    // Salviamo soli i nodi interni
-                    for (auto it = start_it + 1; it != end_it; ++it) {
-                        path.push_back(it->first);
-                        // Debug print
-                        // std::cout << "  Inside node: " << it->first << "\n";
+                    const std::string &w_id = wkv.first;
+                    auto &w = wkv.second;
+                    if (used[w_id] == 0 && contains_seg(w.segments, inside_node))
+                    {
+                        std::vector<std::string> contiguous{w_id, inside_node};
+                        for (auto &other_node : inside)
+                        {
+                            if (other_node != inside_node && contains_seg(w.segments, other_node))
+                            {
+                                contiguous.emplace_back(other_node);
+                            }
+                        }
+                        if (contiguous.size() > 1)
+                        {
+                            haplotypes.emplace_back(std::move(contiguous));
+                            used[w_id] = 1;
+                        }
                     }
-
-                    if(path.size() < 2) {
-                        // std::cout << "Warning: Extracted path has less than 2 nodes (only walk id?). Skipping.\n";
-                        continue;
-                    }
-                    
-                    haplotypes.emplace_back(std::move(path));
-
-                    // std::cout << "--- Haplotype found for bubble " << bubble["id"] << " in walk " << w_id << "\n";
-
-                    // AGGIORNAMENTO CURSORE
-                    // Per la bolla successiva, per questa walk, cercheremo a partire dall'end_node attuale
-                    current_cursor = std::distance(walk.segments.begin(), end_it);
                 }
             }
-            
-            // continue only if haplotypes found
-            if (haplotypes.empty())
-                continue;
 
             // print haplotypes for debugging
             // std::cout << "Haplotypes found in bubble " << bubble["id"] << ":\n";
@@ -785,6 +767,7 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
                     bubble_repetitions[hk] = regex_find_repetitions(sequence);
                 }
             }
+            // cerr << " Regex check ";
 
             // selection logic
             std::pair<Repetition, std::vector<HapKey>> selected_repetition;
@@ -855,12 +838,17 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
                 }
             }
 
+            // cerr << " Selog check ";
+
             auto end_rep = std::chrono::high_resolution_clock::now();
             total_time_rep_find += std::chrono::duration_cast<std::chrono::microseconds>(end_rep - start_rep).count();
             // --- TIMING SECTION END ---
 
             if (selected_repetition.second.empty())
+            {
+                // cerr << "\n";
                 continue;
+            }
 
             // --- TIMING SECTION START: Graph Updates ---
             auto start_mod = std::chrono::high_resolution_clock::now();
@@ -875,7 +863,7 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
                 fusible_sequences[fusible.walk_id] = seq;
             }
 
-            std::string new_rep_id = new_random_id(gfa_data.nodes, "REP");
+            std::string new_rep_id = new_random_id(gfa_data.nodes, "REP", gfa_data);
             gfa_data.nodes[new_rep_id] = motif;
             {
                 Link lk;
@@ -925,7 +913,7 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
                     auto itup = up_flk_dict.find(up_seq);
                     if (itup == up_flk_dict.end())
                     {
-                        new_up_id = new_random_id(gfa_data.nodes, "UP_FLK");
+                        new_up_id = new_random_id(gfa_data.nodes, "UP_FLK", gfa_data);
                         up_flk_dict[up_seq] = new_up_id;
                         gfa_data.nodes[new_up_id] = up_seq;
                         {
@@ -975,7 +963,7 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
                     auto itdw = dw_flk_dict.find(dw_seq);
                     if (itdw == dw_flk_dict.end())
                     {
-                        new_dw_id = new_random_id(gfa_data.nodes, "DW_FLK");
+                        new_dw_id = new_random_id(gfa_data.nodes, "DW_FLK", gfa_data);
                         dw_flk_dict[dw_seq] = new_dw_id;
                         gfa_data.nodes[new_dw_id] = dw_seq;
                         {
@@ -1019,6 +1007,7 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
 
                 // Update the corresponding WALK
                 auto &segs = gfa_data.walks[w_id].segments;
+                // cerr << "Pre Seg: " << format_walk_segments(segs) << "\n";
                 int idx = find_index_by_seg(segs, start_node);
                 if (idx < 0)
                     continue;
@@ -1040,7 +1029,10 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
                 {
                     segs.insert(segs.begin() + (idx + 1), {new_dw_id, '+'});
                 }
+                // cerr << "Pos Seg: " << format_walk_segments(segs) << "\n";
             }
+
+            // cerr << " GrUPD check ";
 
             // Remove old nodes and clean walks/links
             std::vector<std::string> deleted_nodes;
@@ -1073,6 +1065,7 @@ void process_bubblegun_output(const string &file_path, GFAData &gfa_data)
             auto end_mod = std::chrono::high_resolution_clock::now();
             total_time_graph_mod += std::chrono::duration_cast<std::chrono::microseconds>(end_mod - start_mod).count();
             // --- TIMING SECTION END ---
+            // cerr << " CleanWs check " << "\n";
 
         } // end for bubble
     } // end for chains
