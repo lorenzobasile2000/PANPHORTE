@@ -12,6 +12,8 @@
 
 using json = nlohmann::json;
 
+// Haplotype Analysis Structures
+
 /**
  * Represents the raw topology of a Superbubble found by BubbleGun.
  * Stored using efficient NodeIds instead of strings.
@@ -26,34 +28,7 @@ struct BubbleContext {
     int bubble_id;
 };
 
-/**
- * Represents a pending modification to the graph.
- * This decouples the "decision" phase (Step 7) from the "mutation" phase (Step 8).
- * This structure allows Step 7 to be parallelized safely.
- */
-struct ModificationTask {
-    // The node that contains the repetition we want to explode
-    NodeId original_node;
-
-    // The discovered repetitive motif (e.g., "AT")
-    std::string repeat_motif;
-
-    // How many times it repeats in the specific haplotype that triggered this task
-    int repeat_count;
-
-    // Where the repetition starts (0-based index) in the original node's sequence
-    int start_pos;
-
-    // The ID of the walk/haplotype where this repetition was found
-    // (Used to verify or trace back logic)
-    // Optional: we might not strictly need this for the generic split logic, 
-    // but it is useful for the specific logic in PANPHORTE.
-    std::string source_walk_sample; 
-};
-
-// -----------------------------------------------------------------------------
 // Parsing Logic
-// -----------------------------------------------------------------------------
 
 /**
  * Parses the JSON output from BubbleGun and converts it into efficient BubbleContexts.
@@ -177,6 +152,166 @@ inline std::vector<BubbleContext> parse_bubblegun_json(const std::string& json_p
               << "       - Actionable bubbles (>1 inside nodes): " << bubbles.size() << std::endl;
 
     return bubbles;
+}
+
+// Analysis Logic
+
+inline std::vector<Haplotype> extract_bubble_haplotypes(
+    const BubbleContext& bubble, 
+    const PangenomeGraph& graph) 
+{
+    std::vector<Haplotype> results;
+    std::unordered_map<std::string, size_t> seq_to_hap_idx;
+
+    // 1. Create a Set of "Allowed Inside Nodes" for O(1) lookup
+    // This allows us to filter the walk efficiently.
+    std::unordered_set<NodeId> inside_set;
+    for (NodeId n : bubble.inside_nodes) {
+        inside_set.insert(n);
+    }
+
+    // Safety check
+    if (bubble.start_node >= graph.node_to_walk_indices.size()) return {};
+
+    // 2. Iterate relevant walks
+    for (size_t w_idx : graph.node_to_walk_indices[bubble.start_node]) {
+        const auto& walk = graph.walks[w_idx];
+        const auto& segs = walk.segments;
+
+        // We need to find the segment of the walk that corresponds to this bubble.
+        // Strategy: Find the first occurrence of Start, then look for End.
+        // (Handling loops correctly requires more complex logic, but this covers 99% of cases).
+        
+        long start_pos = -1;
+        long end_pos = -1;
+
+        for (size_t i = 0; i < segs.size(); ++i) {
+            if (segs[i].id == bubble.start_node) {
+                // If we haven't found a valid start yet, mark it.
+                // If we found one before but never found an end, we reset (new entry into bubble).
+                start_pos = (long)i;
+                end_pos = -1; // Reset end
+            }
+            else if (segs[i].id == bubble.end_node) {
+                if (start_pos != -1) {
+                    end_pos = (long)i;
+                    // We found a complete Start -> ... -> End traversal.
+                    // Process it immediately.
+                    
+                    std::string hap_seq;
+                    std::vector<NodeId> hap_nodes;
+                    
+                    // Reserve average size to avoid reallocs
+                    hap_nodes.reserve(end_pos - start_pos); 
+
+                    // Iterate strict path between Start and End
+                    for (long k = start_pos + 1; k < end_pos; ++k) {
+                        NodeId nid = segs[k].id;
+                        
+                        hap_nodes.push_back(nid);
+                        hap_seq += graph.get_sequence(nid);
+                    }
+
+                    // Store result
+                    if (seq_to_hap_idx.find(hap_seq) == seq_to_hap_idx.end()) {
+                        seq_to_hap_idx[hap_seq] = results.size();
+                        results.push_back({hap_seq, hap_nodes, {w_idx}});
+                    } else {
+                        results[seq_to_hap_idx[hap_seq]].walk_indices.push_back(w_idx);
+                    }
+
+                    // Reset to search for next occurrence in same walk (if any)
+                    start_pos = -1; 
+                    end_pos = -1;
+                    break; // Or continue if we want to handle multi-traversal
+                }
+            }
+        }
+        
+        // Handle REVERSE Traversal (End -> ... -> Start)
+        // BubbleGun output is Start/End agnostic relative to walk direction.
+        
+        long rev_start_pos = -1; 
+        
+        for (size_t i = 0; i < segs.size(); ++i) {
+            if (segs[i].id == bubble.end_node) {
+                rev_start_pos = (long)i;
+            }
+            else if (segs[i].id == bubble.start_node && rev_start_pos != -1) {
+                long rev_end_pos = (long)i;
+                
+                // Found End -> Start
+                std::string hap_seq;
+                std::vector<NodeId> hap_nodes;
+
+                for (long k = rev_start_pos + 1; k < rev_end_pos; ++k) {
+                    NodeId nid = segs[k].id;
+                    hap_nodes.push_back(nid);
+                    hap_seq += graph.get_sequence(nid);
+                }
+
+                if (seq_to_hap_idx.find(hap_seq) == seq_to_hap_idx.end()) {
+                    seq_to_hap_idx[hap_seq] = results.size();
+                    results.push_back({hap_seq, hap_nodes, {w_idx}});
+                } else {
+                    results[seq_to_hap_idx[hap_seq]].walk_indices.push_back(w_idx);
+                }
+                
+                rev_start_pos = -1; 
+                break;
+            }
+        }
+    }
+
+    return results;
+}
+
+// Analysis Logic
+
+inline std::optional<ModificationTask> find_common_repetition(
+    const std::vector<Haplotype>& haplotypes,
+    NodeId start_node,
+    NodeId end_node) 
+{
+    if (haplotypes.size() < 2) return std::nullopt;
+
+    std::unordered_map<size_t, std::vector<Repetition>> hap_reps;
+    for (size_t i = 0; i < haplotypes.size(); ++i) {
+        hap_reps[i] = PangenomeGraph::find_repetitions(haplotypes[i].sequence);
+    }
+
+    // Heuristic: Check repetitions in the first haplotype
+    for (size_t i = 0; i < haplotypes.size(); ++i) {
+        for (const auto& rep_a : hap_reps[i]) {
+            const std::string& motif_a = std::get<0>(rep_a);
+            
+            int shared_count = 0;
+            // Check availability in others
+            for (size_t j = 0; j < haplotypes.size(); ++j) {
+                if (i == j) continue;
+                bool has_motif = false;
+                for (const auto& rep_b : hap_reps[j]) {
+                    if (std::get<0>(rep_b) == motif_a) { has_motif = true; break; }
+                }
+                // Also check as substring
+                if (!has_motif && haplotypes[j].sequence.find(motif_a) != std::string::npos) {
+                     has_motif = true;
+                }
+                if (has_motif) shared_count++;
+            }
+
+            if (shared_count >= 1) {
+                // FOUND! Construct the task with ALL haplotypes
+                ModificationTask task;
+                task.bubble_start = start_node;
+                task.bubble_end = end_node;
+                task.haplotypes = haplotypes; // Copy all haps
+                task.repeat_motif = motif_a;
+                return task;
+            }
+        }
+    }
+    return std::nullopt;
 }
 
 #endif // BUBBLE_PROCESSOR_HPP
