@@ -1,3 +1,6 @@
+> [!WARNING]
+> This version of Panphorte is obsolete and will be no longer updated in this repo. You can find a new version of Panphorte [here](https://github.com/GenoGra/Panphorte). This repo is kept up for the generation of synthetic CNVs and the alignment pipeline.
+
 # PANPHORTE - Pangenome Graphs Topology Optimizer
 
 This repository integrates four tools to:
@@ -8,7 +11,7 @@ This repository integrates four tools to:
 
 ---
 
-## 🔧 Prerequisites
+## Prerequisites
 
 - Python 3.8+
 - [VG Toolkit](https://github.com/vgteam/vg)
@@ -18,7 +21,7 @@ This repository integrates four tools to:
 
 ---
 
-## 🚀 Step 1: CNV_simulator (MSA Simulation)
+## Step 1: CNV_simulator (MSA Simulation)
 
 1. **Split chromosomes**  
    ```bash
@@ -44,7 +47,7 @@ This repository integrates four tools to:
 
 ---
 
-## 🚀 Step 2: VG Toolkit (Graph Construction)
+## Step 2: VG Toolkit (Graph Construction)
 
 ```bash
 cd ..
@@ -55,7 +58,7 @@ bash vg_execution.sh
 
 ---
 
-## 🚀 Step 3: PANPOHORTE (Cyclization)
+## Step 3: PANPOHORTE (Cyclization)
 
 1. **Convert acyclic → cyclic**  
    ```bash
@@ -74,7 +77,7 @@ bash vg_execution.sh
 
 ---
 
-## 🚀 Step 4: CNV_reads_simulator (Read Simulation)
+## Step 4: CNV_reads_simulator (Read Simulation)
 
 ```bash
 cd CNV_reads_simulator
@@ -82,7 +85,7 @@ python3 CNV_reads_sim.py
 ```
 - Creates new haplotypes fromthe MSA with different copy numbers of the already present CNVs in `.fasta` format.
 
-## 🚀 Step 5: Run GraphAligner to perform the alignment
+## Step 5: Run GraphAligner to perform the alignment
 
 ```bash
 cd ..
